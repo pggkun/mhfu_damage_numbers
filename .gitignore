@@ -1,0 +1,12 @@
+bin/
+modio/
+armips/
+*.txt
+*.bin
+*.iso
+cwcheatio.py
+__pycache__
+umd_replace
+tools/*.iso
+tools/*.c
+tools/*.exe
