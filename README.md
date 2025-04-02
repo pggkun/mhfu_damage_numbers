@@ -3,6 +3,11 @@
 Adds damage number display to Monster Hunter Freedom Unite.
 
 
+
+https://github.com/user-attachments/assets/91ed1a7f-5e9a-4886-824c-8869f379616b
+
+
+
 ## Compiling
 
 In a Linux environment, you will need Make and CMake. Use `make deps` to install the dependencies and `make` to generate the binaries and the text file.
