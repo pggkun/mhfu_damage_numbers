@@ -154,6 +154,10 @@ pointer equ 0x0891DBC0
     jal	0x08826f24
     nop
 
+    li      t0, 0x09C3F7CC 
+    li      t1, 0x24030008
+    sw      t1, 0(t0)
+
     li      t0, 0x09AC2CA4
     li      t1, 0x0A247640
     sw      t1, 0(t0)
