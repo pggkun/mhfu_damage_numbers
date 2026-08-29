@@ -1,15 +1,17 @@
 .psp
 
 FRAME_DURATION equ 18
-DAMAGE_NUMBER_SCALE equ 12 ; Scale in tenths: 10 = 1x, 15 = 1.5x, 100 = 10x
+MOD_DEFAULT_ENABLED equ 1
+DAMAGE_NUMBER_DEFAULT_SCALE equ 12 ; 10 = 1x, 15 = 1.5x, 100 = 10x
 DAMAGE_NUMBER_BASE_WIDTH equ 12
 DAMAGE_NUMBER_BASE_HEIGHT equ 13
-DAMAGE_NUMBER_WIDTH equ (DAMAGE_NUMBER_BASE_WIDTH * DAMAGE_NUMBER_SCALE + 5) / 10
-DAMAGE_NUMBER_HEIGHT equ (DAMAGE_NUMBER_BASE_HEIGHT * DAMAGE_NUMBER_SCALE + 5) / 10
-DAMAGE_NUMBER_SIZE equ (DAMAGE_NUMBER_HEIGHT << 8) | DAMAGE_NUMBER_WIDTH
 DAMAGE_NUMBER_COLOR_INDEX equ 0
 DAMAGE_NUMBER_OUTLINE_COLOR_INDEX equ 1
 DAMAGE_NUMBER_OUTLINE_SIZE equ 1
+
+MOD_CONFIG_ENABLED equ 0x00
+MOD_CONFIG_FONT_SCALE equ 0x01
+MOD_CONFIG_PENDING_COLOR equ 0x3C
 
 INSTANCE_COUNT equ 4
 INSTANCE_SIZE equ 0x10
@@ -20,9 +22,17 @@ INSTANCE_WORLD_Y equ 0x04
 INSTANCE_WORLD_Z equ 0x08
 INSTANCE_DAMAGE equ 0x0C
 INSTANCE_TIMER equ 0x0E
+INSTANCE_COLOR equ 0x0F
 
 .createfile DAMAGE_NUMBERS_OUTPUT, DAMAGE_NUMBERS_ADDRESS
     move t6, t0
+
+    li      t0, DAMAGE_CONFIG_ADDRESS
+    lbu     t1, MOD_CONFIG_ENABLED(t0)
+    beqz    t1, @ret
+    nop
+    lbu     t7, MOD_CONFIG_PENDING_COLOR(t0)
+    sb      zero, MOD_CONFIG_PENDING_COLOR(t0)
 
     li      t0, DAMAGE_INSTANCES_ADDRESS
     li      t3, DAMAGE_INDEX_ADDRESS
@@ -45,6 +55,7 @@ INSTANCE_TIMER equ 0x0E
 
     li      t1, FRAME_DURATION
     sb      t1, INSTANCE_TIMER(t0)
+    sb      t7, INSTANCE_COLOR(t0)
 
     li      t0, DAMAGE_INDEX_ADDRESS
     lw      t1, 0(t0)
@@ -64,6 +75,36 @@ INSTANCE_TIMER equ 0x0E
 @ret:
     sh      v0,0x2E4(s5)
     j       DAMAGE_CAPTURE_RETURN
+
+.org DAMAGE_CONFIG_ADDRESS
+damage_numbers_config:
+    .byte MOD_DEFAULT_ENABLED
+    .byte DAMAGE_NUMBER_DEFAULT_SCALE
+    .byte 0
+    .byte 0
+
+.if CRITICAL_HIT_CAPTURE_SUPPORTED
+critical_hit_capture:
+    li      v0, 0x6
+
+    ; 0x40 = negative critical
+    ; 0x80 = positive critical
+    ; color: 0=white, 4=yellow, 2=red.
+    lbu     k0, 0x2B(s2)
+    andi    k0, k0, 0xC0
+    beqz    k0, @store_critical_color
+    li      k1, DAMAGE_NUMBER_COLOR_INDEX
+    andi    k0, k0, 0x40
+    bnez    k0, @store_critical_color
+    li      k1, DAMAGE_NUMBER_NEGATIVE_CRIT_COLOR_INDEX
+    li      k1, DAMAGE_NUMBER_POSITIVE_CRIT_COLOR_INDEX
+
+@store_critical_color:
+    li      k0, DAMAGE_CONFIG_ADDRESS
+    sb      k1, MOD_CONFIG_PENDING_COLOR(k0)
+    j       CRITICAL_HIT_HOOK_RETURN
+    nop
+.endif
 
 .close
 
@@ -102,6 +143,46 @@ INSTANCE_TIMER equ 0x0E
     li      t0, DAMAGE_CAPTURE_HOOK_ADDRESS
     li      t1, DAMAGE_CAPTURE_JUMP_OPCODE
     sw      t1, 0(t0)
+
+.if CRITICAL_HIT_CAPTURE_SUPPORTED
+    li      t0, CRITICAL_HIT_HOOK_ADDRESS
+    li      t1, CRITICAL_HIT_JUMP_OPCODE
+    sw      t1, 0(t0)
+.endif
+
+    li      t0, DAMAGE_CONFIG_ADDRESS
+    lbu     t1, MOD_CONFIG_ENABLED(t0)
+    beqz    t1, mod_disabled
+    nop
+
+    lbu     t3, MOD_CONFIG_FONT_SCALE(t0)
+    addiu   t1, t3, -10
+    sltiu   t1, t1, 91
+    bnez    t1, @valid_scale
+    nop
+    li      t3, DAMAGE_NUMBER_DEFAULT_SCALE
+@valid_scale:
+
+    la      a0, GAME_DRAW_CONTEXT_ADDRESS
+
+    sll     t0, t3, 3
+    sll     a3, t3, 2
+    addu    t0, t0, a3
+    addiu   t0, t0, 5
+    li      v0, 10
+    divu    t0, v0
+    mflo    t0
+    sb      t0, 0x12C(a0)
+
+    sll     a3, t3, 3
+    sll     v1, t3, 2
+    addu    a3, a3, v1
+    addu    a3, a3, t3
+    addiu   a3, a3, 5
+    li      v0, 10
+    divu    a3, v0
+    mflo    a3
+    sb      a3, 0x12D(a0)
 
     li      t4, 0
 
@@ -175,6 +256,8 @@ draw_loop:
     sw      t4, 0x00(sp)
     sw      t1, 0x04(sp)
     sw      t2, 0x08(sp)
+    lbu     t1, INSTANCE_COLOR(t0)
+    sw      t1, 0x0C(sp)
 
     lw      a0, 0x04(sp)
     addiu   a0, a0, -DAMAGE_NUMBER_OUTLINE_SIZE
@@ -203,7 +286,7 @@ draw_loop:
     lw      a0, 0x04(sp)
     lw      a1, 0x08(sp)
     jal     draw_damage_number_at
-    li      a2, DAMAGE_NUMBER_COLOR_INDEX
+    lw      a2, 0x0C(sp)
 
     lw      t4, 0x00(sp)
     addiu   sp, sp, 0x10
@@ -211,6 +294,21 @@ draw_loop:
 next_instance:
     addiu   t4, t4, INSTANCE_SIZE
     j       draw_loop
+    nop
+
+mod_disabled:
+    li      t0, DAMAGE_INSTANCES_ADDRESS
+    li      t1, INSTANCE_COUNT
+@clear_instances:
+    sb      zero, INSTANCE_TIMER(t0)
+    addiu   t0, t0, INSTANCE_SIZE
+    addiu   t1, t1, -1
+    bnez    t1, @clear_instances
+    nop
+
+    li      t0, DAMAGE_INDEX_ADDRESS
+    sw      zero, 0(t0)
+    j       ret
     nop
 
 ret:
@@ -246,8 +344,6 @@ draw_damage_number_at:
     la      a0, GAME_DRAW_CONTEXT_ADDRESS
     sh      t1, 0x120(a0)
     sh      t2, 0x122(a0)
-    li      t0, DAMAGE_NUMBER_SIZE
-    sh      t0, 0x12C(a0)
     sb      t5, 0x12E(a0)
     sb      zero, 0x12F(a0)
 
