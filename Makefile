@@ -5,13 +5,15 @@ BUILD_DIR := build
 INSTALL_DIR := /usr/local/bin
 
 CHEAT_FILE := CHEAT.TXT
+ASM_ENTRYPOINTS := src/damage_numbers_mhp2ndg.asm src/damage_numbers_mhfu_us.asm
+ASM_SHARED := src/damage_numbers_common.asm
 
 .PHONY: deps, armips, modio
 
-$(CHEAT_FILE):
+$(CHEAT_FILE): $(ASM_ENTRYPOINTS) $(ASM_SHARED) gencwcheat.py
 	mkdir -p bin
-	armips src/damage_numbers_mhp2ndg.asm
-	armips src/damage_numbers_mhfu_us.asm
+	armips $(word 1,$(ASM_ENTRYPOINTS))
+	armips $(word 2,$(ASM_ENTRYPOINTS))
 	python3 gencwcheat.py
 
 modio:
